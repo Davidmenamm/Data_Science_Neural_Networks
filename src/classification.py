@@ -1,0 +1,147 @@
+""" Apply binary classification with ANN """
+
+# imports
+import pandas as pd
+import itertools as itl
+import numpy as np
+from os import listdir, path
+from sklearn import model_selection as ms
+import sklearn.neural_network as nn
+from tree import run_tree
+from write_file import writeTextFile
+from graph import graphCurve
+from imblearn.over_sampling import SMOTE
+from collections import Counter
+
+
+# run one or multiple NN configuration(s)
+def runNN(X, y, config, k_fold, random_state):
+    # hyper parameters
+    cartesian = itl.product(config['hyperparameter']['lr'], config['hyperparameter']['epoch'])
+    # run for all topologies
+    total_results = {}
+    for topology in config['topologies']:
+        # run all hyper parameters
+        topology_results = {}
+        for lr, epoch in cartesian:
+            # stratified cross validation
+            skf = ms.StratifiedKFold(n_splits=k_fold, random_state=random_state, shuffle=True)
+            stratified_indices = skf.split(X, y)
+            # run all k fold
+            for trainIndices, testIndices in stratified_indices:
+                # train and test
+                X_train, X_test = X.iloc[trainIndices, :], X.iloc[testIndices, :]
+                y_train, y_test = y.iloc[trainIndices], y.iloc[testIndices]
+                # neural network definition
+                classifier = nn.MLPClassifier(
+                    hidden_layer_sizes = topology.layers,
+                    activation = topology.activation,
+                    solver = 'sgd',
+                    verbose=True
+                )
+
+
+
+
+# define paths
+def definePaths(inputPath, outputPath):
+    definePaths.baseInPath = inputPath
+    definePaths.baseOutPath = outputPath
+
+
+# classify
+def classify(algorithm, nFolds=10, randomSeed=100):
+    # find input files
+    baseInPath = definePaths.baseInPath
+    fileNames = [f.replace('.csv', '') for f in listdir(
+        baseInPath) if path.isfile(path.join(baseInPath, f))]
+    filePaths = [path.join(baseInPath, f) for f in listdir(
+        baseInPath) if path.isfile(path.join(baseInPath, f))]
+    fileInformation = zip(fileNames, filePaths)
+    # loop files
+    for info in fileInformation:
+        # read csv
+        df = pd.read_csv(info[1], engine='c')
+        # only features
+        X_imbalance = df.iloc[:, 1: len(df.columns)]
+        # only target
+        y_imbalance = df.iloc[:, 0]
+        # balance classes with sampling
+        smt = SMOTE()
+        X, y = smt.fit_resample(X_imbalance, y_imbalance)
+        print(Counter(y))
+        # stratified cross validation
+        skf = ms.StratifiedKFold(
+            n_splits=nFolds, random_state=randomSeed, shuffle=True)
+        stratified_indices = skf.split(X, y)
+        # results
+        results = dict()
+        # stratify k-fold cross
+        count = 0
+        for trainIndices, testIndices in stratified_indices:
+            X_train, X_test = X.iloc[trainIndices, :], X.iloc[testIndices, :]
+            y_train, y_test = y.iloc[trainIndices], y.iloc[testIndices]
+            # apply selected classification
+            infoTree = run_tree(X_train, X_test, y_train, y_test, algorithm)
+            # join metrics for all cross validations, for each tree
+            # initial values
+            if(len(results)==0):
+                # list extending
+                results['y_true'] = []
+                results['y_pred_categ_list'] = []
+                results['y_pred_prob_list'] = []
+                # scalar sum
+                results['tn'] = 0
+                results['fp'] = 0
+                results['fn'] = 0
+                results['tp'] = 0
+                # scalar avg
+                results['acc'] = []
+                results['prec'] = []
+                results['rec'] = []
+                results['auc'] = []
+            else:
+                # target
+                results['y_true'].extend(infoTree['y_true'])
+                results['y_pred_categ_list'].extend(infoTree['y_pred_categ_list'])
+                results['y_pred_prob_list'].extend(infoTree['y_pred_prob_list'])
+                # confusion matrix
+                results['tn'] += infoTree['tn']
+                results['fp'] += infoTree['fp']
+                results['fn'] += infoTree['fn']
+                results['tp'] += infoTree['tp']
+                # metrics avg
+                results['acc'].append(infoTree['acc'])
+                results['prec'].append(infoTree['prec'])
+                results['rec'].append(infoTree['rec'])
+                results['auc'].append(infoTree['auc'])
+            # add counter
+            count += 1
+        # avg metrics
+        acc_np = np.array(results['acc'])
+        prec_np = np.array(results['prec'])
+        rec_np = np.array(results['rec'])
+        auc_np = np.array(results['auc'])
+        # mean
+        results['acc_avg'] = np.mean(acc_np)
+        results['prec_avg'] = np.mean(prec_np)
+        results['rec_avg'] = np.mean(rec_np)
+        results['auc_avg'] = np.mean(auc_np)
+        # std
+        results['acc_std'] = np.std(acc_np)
+        results['prec_std'] = np.std(prec_np)
+        results['rec_std'] = np.std(rec_np)
+        results['auc_std'] = np.std(auc_np)
+        # write results to file
+        writeTextFile(info[0], definePaths.baseOutPath, results, algorithm)
+        # Graphics
+        plotName = f'{info[0]}'
+        function1 = 'ROC'
+        function2 = 'PrecRecall'
+        function3= 'confMatrix'
+        # auc
+        graphCurve(results['y_true'], results['y_pred_prob_list'], algorithm, function1, info[0], definePaths.baseOutPath)
+        # prec vs recall
+        graphCurve(results['y_true'], results['y_pred_prob_list'], algorithm, function2, info[0], definePaths.baseOutPath)
+        # conf matrix
+        graphCurve(results['y_true'], results['y_pred_prob_list'], algorithm, function3, info[0], definePaths.baseOutPath, results['y_pred_categ_list'])
