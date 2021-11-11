@@ -10,23 +10,23 @@ def main():
     config = {
         'topologies' : [
             {
-                'layers' : (16, 8, 6),
+                'layers' : (20, 12, 4),
                 'activation' : 'relu'
             },
             {
-                'layers' : (30, 18, 10, 4),
+                'layers' : (20, 10, 6, 3),
                 'activation' : 'logistic'
             },
             {
-                'layers' : (24, 16, 12, 8, 2),
+                'layers' : (20, 16, 12, 8, 4),
                 'activation' : 'relu'
             },
             {
-                'layers' : (36, 20, 6),
+                'layers' : (20, 14, 10, 6),
                 'activation' : 'logistic'
             },
             {
-                'layers' : (44, 20),
+                'layers' : (20, 10),
                 'activation' : 'relu'
             }
         ],
